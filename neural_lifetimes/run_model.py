@@ -115,7 +115,7 @@ def run_model(
             "limit_val_batches": limit_val_batches,
             "amp_backend": "native",
             "precision": 16,
-            "track_grad_norm": 2,
+            # "track_grad_norm": 2,
             "gradient_clip_val": gradient_clipping,
         },
         **trainer_kwargs,

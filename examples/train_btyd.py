@@ -24,11 +24,35 @@ if __name__ == "__main__":
 
     btyd_dataset = BTYD.from_modes(
         modes=[
-            GenMode(a=2, b=10, r=5, alpha=10),
-            GenMode(a=2, b=10, r=10, alpha=600),
+            GenMode(
+                a=5,
+                b=100,
+                r=5,
+                alpha=10,
+                discrete_dist = {
+                    "PRODUCT_TYPE":{"CARD":0.8, "BALANCE":0.2},
+                    "SUCCESSFUL_ACTION":{0:0.9, 1:0.1},
+                    'SOURCE_CURRENCY':{"GBP":0.7, "EUR":0.2, "USD":0.1}
+                },
+                cont_dist = {
+                    "INVOICE_VALUE_GBP_log": (-2,1)
+                }),
+            GenMode(
+                a=20,
+                b=100,
+                r=10,
+                alpha=600,
+                discrete_dist = {
+                    "PRODUCT_TYPE":{"CARD": 0.3, "BALANCE": 0.7},
+                    "SUCCESSFUL_ACTION":{0: 0.8, 1: 0.2},
+                    'SOURCE_CURRENCY':{"GBP": 0.1, "DKK": 0.9}
+                },
+                cont_dist = {
+                    "INVOICE_VALUE_GBP_log": (5,2)
+                }),
         ],
-        num_customers=1000,
-        mode_ratios=[2.5, 1],  # generate equal number of transactions from each mode
+        num_customers=10000,
+        mode_ratios=[1, 5],  # generate equal number of transactions from each mode
         seq_gen_dynamic=False,
         start_date=datetime.datetime(2019, 1, 1, 0, 0, 0),
         start_limit_date=datetime.datetime(2019, 6, 15, 0, 0, 0),
@@ -71,7 +95,7 @@ if __name__ == "__main__":
         transform=encoder,
         target_transform=target_transform,
         test_size=0.2,
-        batch_points=1024,
+        batch_points=4096,
         min_points=1,
     )
 
@@ -92,8 +116,9 @@ if __name__ == "__main__":
         datamodule,
         net,
         log_dir=LOG_DIR,
-        num_epochs=50,
+        num_epochs=200,
         val_check_interval=10,
         limit_val_batches=20,
         gradient_clipping=0.0000001,
+        trainer_kwargs={'accelerator': 'gpu', "log_every_n_steps": 10}
     )

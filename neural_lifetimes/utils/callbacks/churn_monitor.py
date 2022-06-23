@@ -15,6 +15,10 @@ class MonitorChurn(pl.Callback):
 
     def on_train_batch_end(self, trainer, net, outputs, batch, batch_idx):
         out = net(batch)
+        
+        out = net(batch)
+        out = {n: t for n,t in out.items() if len(t) == len(out['next_dt'])}
+
         _, x_remove_initial = remove_initial_event(batch, out)  # TODO Cornelius: why how what?
         _, x_last = get_last(batch, out)  # TODO Cornelius: why how what?
 
@@ -57,6 +61,7 @@ class MonitorChurn(pl.Callback):
             return
 
         out = net(batch)
+        out = {n: t for n,t in out.items() if len(t) == len(out['next_dt'])}
         _, x_remove_initial = remove_initial_event(batch.copy(), out)
         _, x_last = get_last(batch.copy(), out)
 

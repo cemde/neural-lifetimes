@@ -1,6 +1,9 @@
 import datetime
 from pathlib import Path
 
+import argparse
+import itertools
+
 import numpy as np
 
 import pytorch_lightning as pl
@@ -19,40 +22,15 @@ data_dir = str(Path(__file__).parent.absolute())
 START_TOKEN_DISCR = "<StartToken>"
 COLS = eventsprofiles_datamodel.target_cols + eventsprofiles_datamodel.cont_feat + eventsprofiles_datamodel.discr_feat
 
-if __name__ == "__main__":
-    pl.seed_everything(9473)
 
+def prepare_everything():
     btyd_dataset = BTYD.from_modes(
         modes=[
-            GenMode(
-                a=5,
-                b=100,
-                r=5,
-                alpha=10,
-                discrete_dist = {
-                    "PRODUCT_TYPE":{"CARD":0.8, "BALANCE":0.2},
-                    "SUCCESSFUL_ACTION":{0:0.9, 1:0.1},
-                    'SOURCE_CURRENCY':{"GBP":0.7, "EUR":0.2, "USD":0.1}
-                },
-                cont_dist = {
-                    "INVOICE_VALUE_GBP_log": (-2,1)
-                }),
-            GenMode(
-                a=20,
-                b=100,
-                r=10,
-                alpha=600,
-                discrete_dist = {
-                    "PRODUCT_TYPE":{"CARD": 0.3, "BALANCE": 0.7},
-                    "SUCCESSFUL_ACTION":{0: 0.8, 1: 0.2},
-                    'SOURCE_CURRENCY':{"GBP": 0.1, "DKK": 0.9}
-                },
-                cont_dist = {
-                    "INVOICE_VALUE_GBP_log": (5,2)
-                }),
+            GenMode(a=2, b=10, r=5, alpha=10),
+            GenMode(a=2, b=10, r=10, alpha=600),
         ],
         num_customers=10000,
-        mode_ratios=[1, 5],  # generate equal number of transactions from each mode
+        mode_ratios=[2.5, 1],  # generate equal number of transactions from each mode
         seq_gen_dynamic=False,
         start_date=datetime.datetime(2019, 1, 1, 0, 0, 0),
         start_limit_date=datetime.datetime(2019, 6, 15, 0, 0, 0),
@@ -98,13 +76,16 @@ if __name__ == "__main__":
         batch_points=1024,
         min_points=1,
     )
+    return encoder, datamodule
+
+def define_model_and_run(encoder, datamodule, step_scale, target_weight, n_eigen, n_eigen_threshold, encoder_noise):
 
     loss_cfg = {
-        "n_cold_steps": 100,
-        "n_warmup_steps": 100,
-        "target_weight": 1e-3,
-        "n_eigen": None,
-        "n_eigen_threshold": None,
+        "n_cold_steps": step_scale*1,
+        "n_warmup_steps": step_scale*1,
+        "target_weight": target_weight,
+        "n_eigen": n_eigen,
+        "n_eigen_threshold": n_eigen_threshold,
     }
 
     net = InformationBottleneckEventModel(
@@ -115,17 +96,63 @@ if __name__ == "__main__":
         bottleneck_dim=32,
         lr=0.0001,
         target_cols=COLS,
-        encoder_noise=1e-6,
+        encoder_noise=encoder_noise,
         loss_cfg=loss_cfg,
     )
 
-    run_model(
+    trainer = run_model(
         datamodule,
         net,
         log_dir=LOG_DIR,
-        num_epochs=50,
-        val_check_interval=10,
+        num_epochs=20,
+        val_check_interval=50,
         limit_val_batches=20,
         gradient_clipping=0.0000001,
-        trainer_kwargs={'accelerator': 'gpu', "log_every_n_steps": 10}
+        trainer_kwargs={'accelerator': 'gpu'}
     )
+    
+    return 
+
+
+
+if __name__ == "__main__":
+    pl.seed_everything(9473)
+
+    # parser = argparse.ArgumentParser(description='Description of your program')
+    # parser.add_argument('--ib_target_weight','-itw', help='Target weight for the information bottleneck', type=float, default=1e-6)
+    # parser.add_argument('--step_scale','-itw', help='scale for weight warmup', type=int, default=100)
+    # parser.add_argument('--n_eigen','-itw', help='number of eigenvalues', type=int, default=None)
+    # parser.add_argument('--n_eigen_threshold','-itw', help='threshold for smallest eigenvalue to use', type=float, default=None)
+    # parser.add_argument('--encoder_noise','-itw', help='Noise to be added to the encoder', type=float, default=1e-6)
+
+    # args = parser.parse_args()
+    
+    params = dict(
+        step_scale = [10, 100, 1000],
+        target_weight = [1e-12, 1e-8, 1e-6, 1e-3],
+        n_eigen = [None, 5, 20, 100],
+        n_eigen_threshold = [None, 1e-5, 1e-2, 10, 1e5],
+        encoder_noise = [1e-6, 1e-3],
+    )
+    
+    # prod = itertools.product(step_scale, target_weight, n_eigen, n_eigen_threshold, encoder_noise)
+    
+    def dict_product(d):
+        keys = d.keys()
+        for element in itertools.product(*d.values()):
+            yield dict(zip(keys, element))
+    params = list(dict_product(params))
+
+    to_delete = []
+    for i, el in enumerate(params):
+        if (el['n_eigen_threshold'] is None) == (el['n_eigen'] is None):
+            to_delete.append(i)
+    params = [p for i, p in enumerate(params) if i not in to_delete]
+    
+
+    encoder, datamodule = prepare_everything()
+
+    for p in params:
+        print(p)
+        metric = define_model_and_run(encoder, datamodule, p["step_scale"], p["target_weight"], p["n_eigen"], p["n_eigen_threshold"], p["encoder_noise"])
+        print(metric)
